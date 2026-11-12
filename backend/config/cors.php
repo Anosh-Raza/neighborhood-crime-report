@@ -11,5 +11,6 @@ return [
     'allowed_headers' => ['*'],
     'exposed_headers' => [],
     'max_age' => 0,
-    'supports_credentials' => true,
+    // SPA talks to the API with JSON only (no cookie session) for the open MVP.
+    'supports_credentials' => false,
 ];

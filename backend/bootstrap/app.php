@@ -13,13 +13,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->api(prepend: [
-            \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
-        ]);
-
+        // Open MVP uses JSON API calls from Vite (no cookie session auth).
+        // Stateful Sanctum CSRF was rejecting SPA POSTs with "CSRF token mismatch."
         $middleware->validateCsrfTokens(except: [
-            'api/billing/webhook',
-            'api/internal/queue/drain',
+            'api/*',
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
