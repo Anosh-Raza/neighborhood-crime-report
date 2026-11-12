@@ -30,6 +30,10 @@ class Report extends Model
         'yearly_trend',
         'error_message',
         'preview',
+        'area_keyword',
+        'area_aliases',
+        'area_meta',
+        'news_mentions',
     ];
 
     protected $casts = [
@@ -40,6 +44,9 @@ class Report extends Model
         'crime_type_counts' => 'array',
         'yearly_trend' => 'array',
         'preview' => 'array',
+        'area_aliases' => 'array',
+        'area_meta' => 'array',
+        'news_mentions' => 'array',
         // Keep location as a raw GeoJSON document (do not cast to array/JSON string).
     ];
 

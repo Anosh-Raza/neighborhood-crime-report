@@ -2,18 +2,21 @@ import { Link, Outlet } from 'react-router-dom'
 
 export function Layout() {
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-40 border-b border-[var(--line)] bg-[rgba(243,239,230,0.85)] backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
-          <Link to="/" className="display text-2xl text-[var(--moss-deep)]">
+    <div className="min-h-screen min-h-dvh">
+      <header className="sticky top-0 z-40 border-b border-[var(--line)] bg-[rgba(246,241,231,0.9)] backdrop-blur-md">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <Link to="/" className="display text-xl text-[var(--moss-deep)] sm:text-2xl">
             Neighborhood Crime Report
           </Link>
-          <p className="hidden text-sm text-[var(--muted)] sm:block">Paste a listing link · see nearby crime news</p>
+          <span className="hidden text-sm text-[var(--muted)] md:inline">Listing link → area news</span>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
         <Outlet />
       </main>
+      <footer className="mx-auto max-w-5xl px-4 pb-10 text-center text-xs text-[var(--muted)] sm:px-6">
+        News coverage is incomplete. Mentions are not a safety score.
+      </footer>
     </div>
   )
 }

@@ -63,6 +63,14 @@ export const api = {
         country_code?: string
         lat?: number | null
         lng?: number | null
+        area_keyword?: string
+        area_aliases?: string[]
+        search_terms?: string[]
+      }
+      area?: {
+        primary: string
+        aliases: string[]
+        search_terms: string[]
       }
       user_max_radius_km: number
       disclaimer: string

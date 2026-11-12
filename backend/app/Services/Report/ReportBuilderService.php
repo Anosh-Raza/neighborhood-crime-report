@@ -45,7 +45,8 @@ class ReportBuilderService
             'year' => (string) $year,
             'count' => $count,
         ])->values()->all();
-        $report->coverage_rating = $this->coverageRating($incidents->count(), $report->languages ?? []);
+        $mentionCount = (int) data_get($report->news_mentions, 'totals.article_count', 0);
+        $report->coverage_rating = $this->coverageRating(max($incidents->count(), $mentionCount), $report->languages ?? []);
         $report->summary = $this->summary($report, $incidents->count(), $ringCounts);
         $report->disclaimer = LegalFilters::disclaimer();
 
@@ -96,11 +97,15 @@ class ReportBuilderService
     private function summary(Report $report, int $count, array $ringCounts): string
     {
         $near = (int) ($ringCounts['0-1'] ?? 0);
-        $address = $report->address ?: 'the selected location';
+        $keyword = $report->area_keyword ?: ($report->address ?: 'the selected location');
+        $mentionArticles = (int) data_get($report->news_mentions, 'totals.article_count', 0);
+        $titleHits = (int) data_get($report->news_mentions, 'totals.title_hit_count', 0);
 
         return sprintf(
-            'Based on publicly available online news for %s, this report found %d crime-related items within 10 km (%d within 1 km). Coverage rating: %s. %s',
-            $address,
+            'Google News search for “%s” found %d articles (%d with the area in the headline). Separately, %d crime-tagged items were mapped near the pin (%d within 1 km). Coverage rating: %s. %s',
+            $keyword,
+            $mentionArticles,
+            $titleHits,
             $count,
             $near,
             $report->coverage_rating ?? 'Low',

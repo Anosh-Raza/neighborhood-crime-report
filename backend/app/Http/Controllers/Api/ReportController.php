@@ -10,6 +10,7 @@ use App\Models\JobState;
 use App\Models\Report;
 use App\Services\Geocoding\GeocodingService;
 use App\Services\Listing\ListingParserService;
+use App\Services\Places\AreaKeywordService;
 use App\Support\GeoPoint;
 use App\Support\LegalFilters;
 use Illuminate\Http\JsonResponse;
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\RateLimiter;
 
 class ReportController extends Controller
 {
-    public function preview(Request $request, ListingParserService $parser, GeocodingService $geocoding): JsonResponse
+    public function preview(Request $request, ListingParserService $parser, GeocodingService $geocoding, AreaKeywordService $areas): JsonResponse
     {
         $data = $request->validate([
             'listing_url' => ['nullable', 'url', 'max:2000'],
@@ -78,6 +79,13 @@ class ReportController extends Controller
                 ? 'https://www.openstreetmap.org/search?query='.rawurlencode((string) $parsed['address'])
                 : null);
 
+        $area = $areas->resolve(
+            $listingUrl,
+            $parsed['address'] ?? null,
+            $parsed['city'] ?? null,
+            $parsed['country_code'] ?? null,
+        );
+
         return response()->json([
             'preview' => [
                 'listing_url' => $listingUrl,
@@ -89,7 +97,11 @@ class ReportController extends Controller
                 'lat' => isset($parsed['lat']) ? (float) $parsed['lat'] : null,
                 'lng' => isset($parsed['lng']) ? (float) $parsed['lng'] : null,
                 'source' => $parsed['source'] ?? null,
+                'area_keyword' => $area['primary'],
+                'area_aliases' => $area['aliases'],
+                'search_terms' => $area['search_terms'],
             ],
+            'area' => $area,
             'allowed_radii_km' => config('crime_report.allowed_radii_km'),
             'user_max_radius_km' => 10,
             'disclaimer' => LegalFilters::disclaimer(),
@@ -123,6 +135,13 @@ class ReportController extends Controller
             return response()->json(['message' => 'No report credits remaining.'], 402);
         }
 
+        $area = app(AreaKeywordService::class)->resolve(
+            $data['listing_url'],
+            $data['address'],
+            $data['city'] ?? null,
+            isset($data['country_code']) ? strtoupper($data['country_code']) : null,
+        );
+
         $report = Report::query()->create([
             'user_id' => $user ? (string) $user->_id : null,
             'listing_url' => $data['listing_url'],
@@ -134,6 +153,9 @@ class ReportController extends Controller
             'requested_radius_km' => $radius,
             'status' => Report::STATUS_QUEUED,
             'disclaimer' => LegalFilters::disclaimer(),
+            'area_keyword' => $area['primary'],
+            'area_aliases' => $area['aliases'],
+            'area_meta' => $area,
         ]);
 
         if ($user && config('crime_report.enforce_billing', false)) {
@@ -349,6 +371,10 @@ class ReportController extends Controller
             'crime_type_counts' => $report->crime_type_counts,
             'yearly_trend' => $report->yearly_trend,
             'country_code' => $report->country_code,
+            'area_keyword' => $report->area_keyword,
+            'area_aliases' => $report->area_aliases ?? [],
+            'area_meta' => $report->area_meta,
+            'news_mentions' => $report->news_mentions,
         ]);
     }
 }

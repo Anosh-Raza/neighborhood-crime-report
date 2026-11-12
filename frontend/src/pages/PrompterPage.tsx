@@ -23,13 +23,11 @@ export function PrompterPage() {
     try {
       const trimmed = url.trim()
       const looksLikeUrl = /^https?:\/\//i.test(trimmed)
-      const res = await api.preview(
-        looksLikeUrl ? { listing_url: trimmed } : { address: trimmed },
-      )
+      const res = await api.preview(looksLikeUrl ? { listing_url: trimmed } : { address: trimmed })
       setPreview(res.preview)
       setRadius(10)
-      if (!res.preview?.lat || !res.preview?.lng) {
-        setError('Could not place a pin yet — edit the address below and click Geocode.')
+      if (!res.preview?.area_keyword && (!res.preview?.lat || !res.preview?.lng)) {
+        setError('Could not read that listing yet — edit the address and try again.')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Preview failed')
@@ -38,36 +36,9 @@ export function PrompterPage() {
     }
   }
 
-  const geocodeAddress = async () => {
-    if (!preview?.address) {
-      setError('Enter an address first.')
-      return
-    }
-    setLoading(true)
-    setError('')
-    try {
-      const res = await api.preview({
-        listing_url: preview.listing_url || undefined,
-        address: preview.address,
-      })
-      setPreview({
-        ...preview,
-        ...res.preview,
-        listing_url: preview.listing_url || res.preview.listing_url,
-      })
-      if (!res.preview?.lat || !res.preview?.lng) {
-        setError('Still no pin — try a fuller street address with city.')
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Geocode failed')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const create = async () => {
     if (!preview?.lat || !preview?.lng || !preview.address) {
-      setError('Need an address and map pin before running the report.')
+      setError('Confirm the map pin and address first.')
       return
     }
     setLoading(true)
@@ -85,57 +56,82 @@ export function PrompterPage() {
       })
       navigate(`/reports/${res.report.id}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create report')
+      setError(err instanceof Error ? err.message : 'Could not start search')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="space-y-8">
-      <section className="mx-auto max-w-3xl space-y-4 text-center">
-        <h1 className="display text-5xl text-[var(--moss-deep)] md:text-6xl">Paste a property link</h1>
-        <p className="text-lg text-[var(--muted)]">
-          Drop a listing URL (or a street address). Confirm the pin, then see nearby crime news.
+    <div className="space-y-7 sm:space-y-10">
+      <section className="mx-auto max-w-2xl space-y-4 text-center">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--moss)]">Step 1 · Trace the listing</p>
+        <h1 className="display text-4xl text-[var(--moss-deep)] sm:text-5xl md:text-6xl">Paste a property link</h1>
+        <p className="text-base text-[var(--muted)] sm:text-lg">
+          We pull the main area name (e.g. Saadi Town), search Google News for that keyword, then show title and text
+          mention counts.
         </p>
-        <form
-          onSubmit={runPreview}
-          className="card-panel flex flex-col gap-3 rounded-3xl p-4 text-left md:flex-row md:items-center"
-        >
-          <input
-            className="input flex-1"
-            placeholder="https://… listing URL, or 123 Main St, City"
+
+        <form onSubmit={runPreview} className="card-panel space-y-3 rounded-[1.75rem] p-3 text-left sm:p-4">
+          <label className="block text-sm font-semibold text-[var(--muted)]" htmlFor="listing">
+            Listing URL or address
+          </label>
+          <textarea
+            id="listing"
+            className="input min-h-[5.5rem] resize-y"
+            placeholder="https://www.zameen.com/Property/… or Saadi Garden, Karachi"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             required
             autoFocus
           />
-          <button className="btn btn-primary whitespace-nowrap" disabled={loading || !url.trim()}>
-            {loading && !preview ? 'Reading…' : 'Find location'}
+          <button className="btn btn-primary w-full sm:w-auto" disabled={loading || !url.trim()}>
+            {loading && !preview ? 'Reading link…' : 'Find area'}
           </button>
         </form>
-        <p className="disclaimer mx-auto max-w-xl text-left">
+
+        <div className="disclaimer text-left">
           News reports cover only part of actual crime. A low count does not mean an area is safe.
-        </p>
+        </div>
         {error && <p className="text-[var(--alert)]">{error}</p>}
       </section>
 
       {preview && (
-        <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          {center ? (
-            <ReportMap
-              center={center}
-              editable
-              radiusKm={radius}
-              onPinChange={(lat, lng) => setPreview({ ...preview, lat, lng })}
-            />
-          ) : (
-            <div className="card-panel rounded-2xl p-6 text-[var(--muted)]">
-              No coordinates yet. Edit the address and click Geocode.
+        <section className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="space-y-4">
+            <div className="card-panel rounded-[1.75rem] p-4 sm:p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--moss)]">Detected area keyword</p>
+              <h2 className="display mt-2 text-3xl text-[var(--moss-deep)] sm:text-4xl">
+                {preview.area_keyword || 'Area pending'}
+              </h2>
+              <p className="mt-2 text-sm text-[var(--muted)]">
+                Google News will be searched for this keyword
+                {preview.area_aliases?.length ? ` (also: ${preview.area_aliases.join(', ')})` : ''}.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="chip">{preview.area_keyword || '—'}</span>
+                {(preview.area_aliases || []).map((a: string) => (
+                  <span key={a} className="chip chip-muted">
+                    {a}
+                  </span>
+                ))}
+              </div>
             </div>
-          )}
 
-          <div className="card-panel space-y-4 rounded-3xl p-5">
+            {center ? (
+              <ReportMap
+                center={center}
+                editable
+                radiusKm={radius}
+                onPinChange={(lat, lng) => setPreview({ ...preview, lat, lng })}
+                height={320}
+              />
+            ) : (
+              <div className="card-panel rounded-2xl p-5 text-[var(--muted)]">Map pin not ready yet — check the address.</div>
+            )}
+          </div>
+
+          <div className="card-panel space-y-4 rounded-[1.75rem] p-4 sm:p-5">
             <div>
               <div className="mb-1 text-sm font-semibold">Address</div>
               <textarea
@@ -144,7 +140,7 @@ export function PrompterPage() {
                 onChange={(e) => setPreview({ ...preview, address: e.target.value })}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <input
                 className="input"
                 placeholder="City"
@@ -158,17 +154,14 @@ export function PrompterPage() {
                 onChange={(e) => setPreview({ ...preview, country: e.target.value })}
               />
             </div>
-            <button type="button" className="btn btn-ghost w-full" onClick={() => void geocodeAddress()} disabled={loading}>
-              Geocode address
-            </button>
             <div>
-              <div className="mb-2 text-sm font-semibold">Show within</div>
+              <div className="mb-2 text-sm font-semibold">Map filter radius</div>
               <div className="flex flex-wrap gap-2">
                 {[1, 3, 5, 10].map((km) => (
                   <button
                     key={km}
                     type="button"
-                    className={`btn px-4 py-2 ${radius === km ? 'btn-primary' : 'btn-ghost'}`}
+                    className={`btn btn-inline px-4 py-2 ${radius === km ? 'btn-primary' : 'btn-ghost'}`}
                     onClick={() => setRadius(km)}
                   >
                     {km} km
@@ -177,10 +170,10 @@ export function PrompterPage() {
               </div>
             </div>
             <button className="btn btn-primary w-full" onClick={() => void create()} disabled={loading}>
-              {loading ? 'Starting report…' : 'See crime reports'}
+              {loading ? 'Searching Google News…' : `Search news for “${preview.area_keyword || 'area'}”`}
             </button>
           </div>
-        </div>
+        </section>
       )}
     </div>
   )

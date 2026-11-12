@@ -27,7 +27,7 @@ return [
 
     'max_search_radius_km' => 10,
 
-    'news_max_articles_per_report' => (int) env('NEWS_MAX_ARTICLES_PER_REPORT', 40),
+    'news_max_articles_per_report' => (int) env('NEWS_MAX_ARTICLES_PER_REPORT', 20),
 
     'news_providers' => array_filter(explode(',', (string) env('NEWS_PROVIDERS', 'gdelt,rss'))),
 
