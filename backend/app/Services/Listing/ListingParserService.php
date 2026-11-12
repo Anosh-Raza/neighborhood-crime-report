@@ -57,10 +57,22 @@ class ListingParserService
             return $fromStructured;
         }
 
+        // Prefer page content over URL slug hints when the HTML has a usable address.
+        $merged = array_filter(
+            array_merge($fromUrl, $fromStructured, ['listing_url' => $url]),
+            fn ($v) => $v !== null && $v !== ''
+        );
+
+        if (! empty($merged['address']) || (! empty($merged['lat']) && ! empty($merged['lng']))) {
+            $merged['source'] = $fromStructured['source'] ?? ($merged['source'] ?? 'structured');
+
+            return $merged;
+        }
+
         $fromLlm = $this->extractWithLlm($html, $url);
 
         return array_filter(
-            array_merge($fromUrl, $fromStructured, $fromLlm, ['listing_url' => $url]),
+            array_merge($merged, $fromLlm, ['listing_url' => $url]),
             fn ($v) => $v !== null && $v !== ''
         );
     }
@@ -88,18 +100,36 @@ class ListingParserService
             throw new \RuntimeException('Unable to fetch listing URL (HTTP '.$response->status().').');
         }
 
-        return mb_substr($response->body(), 0, 400000);
+        // Keep enough of large marketplace pages (OLX ~1MB) to retain JSON-LD location blocks.
+        return mb_substr($response->body(), 0, 1500000);
     }
 
     private function looksBlocked(string $html): bool
     {
         $hay = mb_strtolower($html);
+        $title = '';
+        if (preg_match('/<title[^>]*>(.*?)<\/title>/is', $html, $m)) {
+            $title = mb_strtolower(trim(html_entity_decode(strip_tags($m[1]))));
+        }
 
-        return str_contains($hay, 'security check')
-            || str_contains($hay, 'cf-browser-verification')
-            || str_contains($hay, 'attention required')
-            || str_contains($hay, 'captcha')
-            || (str_contains($hay, 'zameen') && str_contains($hay, 'security check'));
+        // Only treat as a bot wall when the page itself is a challenge — many
+        // marketplaces load captcha scripts on otherwise valid listing HTML.
+        if (str_contains($title, 'security check')
+            || str_contains($title, 'attention required')
+            || str_contains($title, 'access denied')
+            || str_contains($title, 'just a moment')) {
+            return true;
+        }
+
+        if (str_contains($hay, 'cf-browser-verification') || str_contains($hay, 'cf-challenge')) {
+            return true;
+        }
+
+        if (str_contains($hay, 'security check') && str_contains($hay, 'zameen') && ! str_contains($hay, 'application/ld+json')) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -216,29 +246,23 @@ class ListingParserService
                 if (! is_array($data)) {
                     continue;
                 }
-                $items = isset($data['@graph']) && is_array($data['@graph']) ? $data['@graph'] : [$data];
-                foreach ($items as $item) {
-                    if (! is_array($item)) {
-                        continue;
-                    }
-                    $result['title'] ??= $item['name'] ?? $item['headline'] ?? null;
-                    $addr = $item['address'] ?? null;
-                    if (is_string($addr)) {
-                        $result['address'] ??= $addr;
-                    } elseif (is_array($addr)) {
-                        $result['address'] ??= $this->joinAddress($addr);
-                        $result['city'] ??= $addr['addressLocality'] ?? null;
-                        $result['country'] ??= is_array($addr['addressCountry'] ?? null)
-                            ? ($addr['addressCountry']['name'] ?? null)
-                            : ($addr['addressCountry'] ?? null);
-                    }
-                    $geo = $item['geo'] ?? null;
-                    if (is_array($geo)) {
-                        $result['lat'] ??= isset($geo['latitude']) ? (float) $geo['latitude'] : null;
-                        $result['lng'] ??= isset($geo['longitude']) ? (float) $geo['longitude'] : null;
-                    }
-                }
+                $this->walkJsonLd($data, $result);
             }
+        }
+
+        // Marketplace embeds (OLX / similar) often put area in flat JSON keys.
+        foreach ([
+            'locationName', 'area_name', 'neighbourhood', 'neighborhood', 'mapAddress', 'ad_location', 'locality',
+        ] as $key) {
+            if (preg_match('/"'.$key.'"\s*:\s*"([^"]+)"/i', $html, $m)) {
+                $result['address'] ??= html_entity_decode($m[1]);
+            }
+        }
+        if (preg_match('/"city_name"\s*:\s*"([^"]+)"/i', $html, $m)) {
+            $result['city'] ??= html_entity_decode($m[1]);
+        }
+        if (preg_match('/"country_code"\s*:\s*"([A-Za-z]{2})"/i', $html, $m)) {
+            $result['country_code'] ??= strtoupper($m[1]);
         }
 
         $ogs = [];
@@ -246,6 +270,13 @@ class ListingParserService
             foreach ($ogMatches as $m) {
                 $ogs[$m[1]] = html_entity_decode($m[2]);
             }
+        }
+        // Also support <meta property=... content=...> attribute order variants / name=
+        if (preg_match('/<meta[^>]+(?:property|name)=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']/i', $html, $m)) {
+            $result['title'] ??= html_entity_decode($m[1]);
+        }
+        if (preg_match('/<meta[^>]+(?:property|name)=["\']description["\'][^>]+content=["\']([^"\']+)["\']/i', $html, $m)) {
+            $result['description'] ??= html_entity_decode($m[1]);
         }
         $result['title'] ??= $ogs['title'] ?? null;
         if (! empty($ogs['latitude']) && ! empty($ogs['longitude'])) {
@@ -259,7 +290,96 @@ class ListingParserService
             $result['lng'] ??= (float) $lngM[1];
         }
 
+        // Pull area from listing description prose when structured address is thin.
+        if (empty($result['address']) && ! empty($result['description'])) {
+            if (preg_match('/(?:location|area|prime location)\s*[:\-–]\s*([^\n\*\.]{5,80})/i', $result['description'], $m)) {
+                $result['address'] = trim($m[1]);
+            }
+        }
+
+        // Country code from short country field.
+        if (! empty($result['country']) && empty($result['country_code'])) {
+            $c = strtoupper((string) $result['country']);
+            if (strlen($c) === 2) {
+                $result['country_code'] = $c;
+                $result['country'] = $c === 'PK' ? 'Pakistan' : $result['country'];
+            }
+        }
+
         return array_filter($result, fn ($v) => $v !== null && $v !== '');
+    }
+
+    /**
+     * Recursively collect address / geo / title from nested JSON-LD (OLX nests Apartment under RealEstateListing).
+     *
+     * @param  array<string, mixed>  $node
+     * @param  array<string, mixed>  $result
+     */
+    private function walkJsonLd(array $node, array &$result): void
+    {
+        if (isset($node['@graph']) && is_array($node['@graph'])) {
+            foreach ($node['@graph'] as $child) {
+                if (is_array($child)) {
+                    $this->walkJsonLd($child, $result);
+                }
+            }
+        }
+
+        $type = $node['@type'] ?? null;
+        $types = is_array($type) ? $type : [$type];
+
+        $result['title'] ??= $node['name'] ?? $node['headline'] ?? null;
+        if (! empty($node['description']) && is_string($node['description'])) {
+            $result['description'] ??= $node['description'];
+        }
+
+        $addr = $node['address'] ?? null;
+        if (is_string($addr) && $addr !== '') {
+            $result['address'] ??= $addr;
+        } elseif (is_array($addr)) {
+            $joined = $this->joinAddress($addr);
+            if ($joined !== '') {
+                $result['address'] ??= $joined;
+            }
+            $result['city'] ??= $addr['addressLocality'] ?? null;
+            $country = $addr['addressCountry'] ?? null;
+            if (is_array($country)) {
+                $result['country'] ??= $country['name'] ?? null;
+                $result['country_code'] ??= isset($country['@id']) ? null : ($country['name'] ?? null);
+            } elseif (is_string($country)) {
+                if (strlen($country) === 2) {
+                    $result['country_code'] ??= strtoupper($country);
+                    $result['country'] ??= strtoupper($country) === 'PK' ? 'Pakistan' : $country;
+                } else {
+                    $result['country'] ??= $country;
+                }
+            }
+        }
+
+        $geo = $node['geo'] ?? null;
+        if (is_array($geo)) {
+            $result['lat'] ??= isset($geo['latitude']) ? (float) $geo['latitude'] : null;
+            $result['lng'] ??= isset($geo['longitude']) ? (float) $geo['longitude'] : null;
+        }
+
+        // Prefer RealEstateListing / Apartment / House / Place nodes by continuing into mainEntity.
+        foreach (['mainEntity', 'itemOffered', 'about', 'containsPlace'] as $key) {
+            if (isset($node[$key]) && is_array($node[$key])) {
+                $this->walkJsonLd($node[$key], $result);
+            }
+        }
+
+        // Walk other nested arrays/objects lightly (depth-limited by useful keys only).
+        foreach ($node as $key => $value) {
+            if ($key === '@graph' || $key === 'mainEntity') {
+                continue;
+            }
+            if (is_array($value) && (isset($value['@type']) || isset($value['address']) || isset($value['geo']))) {
+                $this->walkJsonLd($value, $result);
+            }
+        }
+
+        unset($types);
     }
 
     private function extractWithLlm(string $html, string $url): array

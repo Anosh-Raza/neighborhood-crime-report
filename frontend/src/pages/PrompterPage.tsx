@@ -68,8 +68,8 @@ export function PrompterPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--moss)]">Step 1 · Trace the listing</p>
         <h1 className="display text-4xl text-[var(--moss-deep)] sm:text-5xl md:text-6xl">Paste a property link</h1>
         <p className="text-base text-[var(--muted)] sm:text-lg">
-          We pull the main area name (e.g. Saadi Town), search Google News for that keyword, then show title and text
-          mention counts.
+          Paste any property listing link. We open the page, read the location details, find the main area name, search
+          Google News for that keyword, then show title and text mention counts.
         </p>
 
         <form onSubmit={runPreview} className="card-panel space-y-3 rounded-[1.75rem] p-3 text-left sm:p-4">
@@ -79,14 +79,14 @@ export function PrompterPage() {
           <textarea
             id="listing"
             className="input min-h-[5.5rem] resize-y"
-            placeholder="https://www.zameen.com/Property/… or Saadi Garden, Karachi"
+            placeholder="Paste a property listing URL or a full street address"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             required
             autoFocus
           />
           <button className="btn btn-primary w-full sm:w-auto" disabled={loading || !url.trim()}>
-            {loading && !preview ? 'Reading link…' : 'Find area'}
+            {loading && !preview ? 'Reading listing…' : 'Find area'}
           </button>
         </form>
 

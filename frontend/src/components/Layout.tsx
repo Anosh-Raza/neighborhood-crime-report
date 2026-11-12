@@ -8,7 +8,7 @@ export function Layout() {
           <Link to="/" className="display text-xl text-[var(--moss-deep)] sm:text-2xl">
             Neighborhood Crime Report
           </Link>
-          <span className="hidden text-sm text-[var(--muted)] md:inline">Listing link → area news</span>
+          <span className="hidden text-sm text-[var(--muted)] md:inline">Paste a listing · read the area · search news</span>
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">

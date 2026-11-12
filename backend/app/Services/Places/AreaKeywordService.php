@@ -117,6 +117,17 @@ class AreaKeywordService
             return 'Saadi Garden';
         }
 
+        // Gulistan-e-Jauhar / Gulshan variants
+        if (preg_match('/\bgulistan[\s\-]*e[\s\-]*jauhar\b/i', $t) || preg_match('/\bgulistan\s+e\s+jauhar\b/i', $t)) {
+            return 'Gulistan-e-Jauhar';
+        }
+        if (preg_match('/\bgulshan[\s\-]*e[\s\-]*iqbal\b/i', $t)) {
+            return 'Gulshan-e-Iqbal';
+        }
+        if (preg_match('/\bgulshan\b/i', $t)) {
+            return 'Gulshan';
+        }
+
         if ($phase && ! preg_match('/\bphase\b/i', $t)) {
             $t .= ' phase '.$phase;
         }
