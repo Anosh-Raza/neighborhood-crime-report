@@ -113,19 +113,33 @@ class ListingParserService
         $path = urldecode((string) parse_url($url, PHP_URL_PATH));
 
         if (str_contains($host, 'zameen.com')) {
-            // /Property/saadi_garden_saadi_garden_-_block_6_for_sale_...
+            $area = app(\App\Services\Places\AreaKeywordService::class)->resolve($url, null, null, 'PK');
+            if (! empty($area['primary']) && $area['primary'] !== 'Unknown area') {
+                $cityHint = $area['city'] ?: $this->guessPakistanCity($area['primary']);
+                $address = $area['geocode_query']
+                    ?? trim($area['primary'].($cityHint ? ', '.$cityHint : '').', Pakistan');
+
+                return [
+                    'address' => $address,
+                    'city' => $cityHint,
+                    'country' => 'Pakistan',
+                    'country_code' => 'PK',
+                    'title' => $area['primary'],
+                    'source' => 'zameen_url',
+                    'area_keyword' => $area['primary'],
+                ];
+            }
+
+            // Fallback slug parse if area resolver fails.
             if (preg_match('#/Property/([^/]+?)(?:-\d+)+#i', $path, $m) || preg_match('#/Property/([^/?]+)#i', $path, $m)) {
                 $slug = $m[1];
                 $slug = preg_replace('/_+/', ' ', $slug) ?? $slug;
                 $slug = preg_replace('/\s*-\s*/', ' ', $slug) ?? $slug;
-                // Drop marketing tails after location cues.
                 $slug = preg_replace('/\b(for sale|for rent|commercial|residential|plot|house|flat|apartment|bedroom|sqyd|sqyds|marla|kanal|\d+\s*ft|road facing).*$/i', '', $slug) ?? $slug;
                 $slug = trim(preg_replace('/\s+/', ' ', $slug) ?? $slug);
-                // Collapse duplicated phrases: "saadi garden saadi garden block 6"
                 $slug = $this->dedupeWords($slug);
 
                 if ($slug !== '') {
-                    // Zameen listings are Pakistan; Karachi/Lahore/etc. help Nominatim resolve societies.
                     $cityHint = $this->guessPakistanCity($slug);
 
                     return [

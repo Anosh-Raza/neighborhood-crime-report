@@ -50,30 +50,6 @@ class ReportController extends Controller
             }
         }
 
-        if (empty($parsed['lat']) || empty($parsed['lng'])) {
-            $candidates = array_values(array_unique(array_filter([
-                $data['address'] ?? null,
-                $parsed['address'] ?? null,
-                isset($parsed['title'], $parsed['city']) ? trim($parsed['title'].', '.$parsed['city'].', '.($parsed['country'] ?? '')) : null,
-                isset($parsed['title']) ? trim($parsed['title'].', '.($parsed['country'] ?? 'Pakistan')) : null,
-            ])));
-
-            foreach ($candidates as $addressForGeo) {
-                $geo = $geocoding->geocode($addressForGeo, $parsed['country_code'] ?? null);
-                if (! $geo) {
-                    continue;
-                }
-                $parsed['lat'] = $geo['lat'];
-                $parsed['lng'] = $geo['lng'];
-                $parsed['address'] = $parsed['address'] ?? $geo['display_name'];
-                $parsed['country'] = $parsed['country'] ?? $geo['country'];
-                $parsed['country_code'] = $parsed['country_code'] ?? $geo['country_code'];
-                $parsed['city'] = $parsed['city'] ?? $geo['city'];
-                $parsed['source'] = ($parsed['source'] ?? 'address').'+geocode';
-                break;
-            }
-        }
-
         $listingUrl = $parsed['listing_url']
             ?? (! empty($parsed['address'])
                 ? 'https://www.openstreetmap.org/search?query='.rawurlencode((string) $parsed['address'])
@@ -81,10 +57,48 @@ class ReportController extends Controller
 
         $area = $areas->resolve(
             $listingUrl,
-            $parsed['address'] ?? null,
+            $parsed['address'] ?? $data['address'] ?? null,
             $parsed['city'] ?? null,
             $parsed['country_code'] ?? null,
         );
+
+        // Prefer cleaned locality for display/geocode (fixes "Dha Defence Phase 3 Dha Phase 3").
+        if (! empty($area['geocode_query'])) {
+            $parsed['address'] = $area['geocode_query'];
+        } elseif (! empty($area['primary'])) {
+            $parsed['address'] = trim($area['primary'].(! empty($area['city']) ? ', '.$area['city'] : '').', Pakistan');
+        }
+        if (! empty($area['city'])) {
+            $parsed['city'] = $area['city'];
+        }
+        if (! empty($area['country_code'])) {
+            $parsed['country_code'] = $area['country_code'];
+            $parsed['country'] = $parsed['country'] ?? 'Pakistan';
+        }
+
+        if (empty($parsed['lat']) || empty($parsed['lng'])) {
+            $candidates = array_values(array_unique(array_filter([
+                $area['geocode_query'] ?? null,
+                ! empty($area['primary']) ? $area['primary'].', Karachi, Pakistan' : null,
+                ! empty($area['primary']) ? $area['primary'].', Pakistan' : null,
+                $data['address'] ?? null,
+                $parsed['address'] ?? null,
+            ])));
+
+            foreach ($candidates as $addressForGeo) {
+                $geo = $geocoding->geocode($addressForGeo, $parsed['country_code'] ?? 'PK');
+                if (! $geo) {
+                    continue;
+                }
+                $parsed['lat'] = $geo['lat'];
+                $parsed['lng'] = $geo['lng'];
+                $parsed['country'] = $parsed['country'] ?? $geo['country'];
+                $parsed['country_code'] = $parsed['country_code'] ?? $geo['country_code'];
+                $parsed['city'] = $parsed['city'] ?? $geo['city'];
+                $parsed['source'] = ($parsed['source'] ?? 'address').'+geocode';
+                break;
+            }
+        }
 
         return response()->json([
             'preview' => [
