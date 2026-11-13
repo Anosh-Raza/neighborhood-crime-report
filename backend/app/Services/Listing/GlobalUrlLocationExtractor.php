@@ -24,6 +24,18 @@ class GlobalUrlLocationExtractor
         $path = urldecode((string) parse_url($url, PHP_URL_PATH));
         $country = $this->countryFromHost($host);
 
+        // Realtor.com has a rigid Street_City_ST_ZIP_M… pattern — parse it directly.
+        if (str_contains($host, 'realtor.com')) {
+            $realtor = $this->parseRealtorPath($path);
+            if ($realtor !== null) {
+                return array_filter(array_merge($realtor, [
+                    'country' => $country['country'] ?? 'United States',
+                    'country_code' => $country['country_code'] ?? 'US',
+                    'source' => 'url_slug',
+                ]));
+            }
+        }
+
         $slug = $this->bestSlugFromPath($host, $path);
         if ($slug === null || $slug === '') {
             return array_filter([
@@ -53,6 +65,36 @@ class GlobalUrlLocationExtractor
             'title' => $readable,
             'source' => 'url_slug',
         ]);
+    }
+
+    /**
+     * @return array{address: string, city: string, title: string}|null
+     */
+    private function parseRealtorPath(string $path): ?array
+    {
+        if (! preg_match('#realestateandhomes-detail/([^/]+)#i', $path, $m)) {
+            return null;
+        }
+
+        $seg = urldecode($m[1]);
+        // Drop listing id: _M57019-83181
+        $seg = preg_replace('/_M\d+(?:-\d+)?$/i', '', $seg) ?? $seg;
+
+        // Street_City_ST_ZIP
+        if (! preg_match('/^(.*)_([^_]+)_([A-Za-z]{2})_(\d{5})(?:-\d{4})?$/i', $seg, $p)) {
+            return null;
+        }
+
+        $street = $this->slugToReadable(str_replace('_', '-', $p[1]));
+        $city = $this->slugToReadable(str_replace('_', '-', $p[2]));
+        $state = strtoupper($p[3]);
+        $zip = $p[4];
+
+        return [
+            'address' => "{$street}, {$city}, {$state} {$zip}, United States",
+            'city' => $city,
+            'title' => "{$street}, {$city}",
+        ];
     }
 
     /**

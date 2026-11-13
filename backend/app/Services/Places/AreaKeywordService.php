@@ -37,8 +37,12 @@ class AreaKeywordService
         if ($locality && $this->isJunkLocality($locality)) {
             $locality = null;
         }
+        // Street leftovers like "N Ocean" are not news keywords — prefer city.
+        if ($locality && $city && $this->looksLikeStreetFragment($locality)) {
+            $locality = $city;
+        }
         $raw = $locality ?: ($scheme ?: ($city ?: 'Unknown area'));
-        if ($this->isJunkLocality($raw)) {
+        if ($this->isJunkLocality($raw) || ($city && $this->looksLikeStreetFragment($raw))) {
             $raw = $city ?: 'Unknown area';
         }
         $base = $this->normalizeLocality($raw, $phase);
@@ -332,9 +336,42 @@ class AreaKeywordService
             }
         }
 
-        // US-style city before state code (ignore street directionals / types).
+        // US-style: "... , Palm Beach, FL 33480, United States" (city may not be at string end).
         if (empty($out['city'])) {
-            $compact = trim(preg_replace('/\b(nw|ne|sw|se)\b/i', ' ', $raw) ?? $raw);
+            $street = '/^(street|st|avenue|ave|road|rd|drive|dr|lane|ln|boulevard|blvd|way|court|ct|place|pl|terrace|pennsylvania|main)$/i';
+            for ($i = 0; $i < count($chunks) - 1; $i++) {
+                $here = $chunks[$i];
+                $next = $chunks[$i + 1];
+                if (! preg_match('/^([A-Za-z][A-Za-z.\-\s]+)$/', $here)) {
+                    continue;
+                }
+                if (! preg_match('/^([A-Za-z]{2})(?:\s+\d{5}(?:-\d{4})?)?$/', $next, $st)) {
+                    continue;
+                }
+                $candidate = trim($here);
+                $words = preg_split('/\s+/', $candidate) ?: [];
+                if ($words === [] || count($words) > 3) {
+                    continue;
+                }
+                if (count($words) === 1 && preg_match($street, $words[0])) {
+                    continue;
+                }
+                if (count($words) === 2 && preg_match($street, $words[0])) {
+                    $candidate = $words[1];
+                } elseif (count($words) === 2 && preg_match($street, $words[1])) {
+                    continue;
+                }
+                $out['city'] = $this->titleCase($candidate);
+                $out['country_code'] ??= 'US';
+                $out['locality'] ??= $out['city'];
+                break;
+            }
+        }
+
+        // US-style city before state code at end of a compact line (ignore street directionals / types).
+        if (empty($out['city'])) {
+            $compact = trim(preg_replace('/\b(united states|usa|u\.s\.a?\.?)\b/i', '', $raw) ?? $raw);
+            $compact = trim(preg_replace('/\b(nw|ne|sw|se)\b/i', ' ', $compact) ?? $compact);
             $compact = trim(preg_replace('/\s+/', ' ', $compact) ?? $compact);
             $compact = trim(preg_replace('/\s+\d{5}(?:-\d{4})?\s*$/', '', $compact) ?? $compact);
             $street = '/^(street|st|avenue|ave|road|rd|drive|dr|lane|ln|boulevard|blvd|way|court|ct|place|pl|terrace|pennsylvania|main)$/i';
@@ -520,6 +557,14 @@ class AreaKeywordService
 
         return (bool) preg_match('/^(venta|alquiler|immobile|inmueble|imovel|for sale|for rent|properties|property|homes|listings?|unknown area)(\s|$)/i', $t)
             || (bool) preg_match('/\b(venta viviendas|alquiler viviendas)\b/i', $t);
+    }
+
+    /** Directional + street remnant left after stripping types (e.g. "N Ocean"). */
+    private function looksLikeStreetFragment(string $text): bool
+    {
+        $t = trim($text);
+
+        return (bool) preg_match('/^(n|s|e|w|north|south|east|west|nw|ne|sw|se)\s+[A-Za-z]{2,20}$/i', $t);
     }
 
     private function normalizePhase(string $phase): string
