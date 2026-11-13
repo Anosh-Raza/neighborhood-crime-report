@@ -68,18 +68,15 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  border-radius: 999px;
-  padding: 0.85rem 1.35rem;
-  font-weight: 600;
+  gap: 0.45rem;
+  border-radius: 0.55rem;
+  padding: 0.65rem 1rem;
+  font-weight: 560;
+  font-size: 0.95rem;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
-  min-height: 48px;
-}
-
-.btn:hover:not(:disabled) {
-  transform: translateY(-1px);
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  min-height: 42px;
 }
 
 .btn:disabled {
@@ -90,7 +87,6 @@ select {
 .btn-primary {
   background: var(--moss);
   color: #fff;
-  box-shadow: 0 12px 28px var(--glow);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -98,8 +94,56 @@ select {
 }
 
 .btn-ghost {
-  background: rgba(255, 255, 255, 0.45);
+  background: transparent;
   border-color: var(--line);
+  color: var(--ink);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(18, 36, 28, 0.04);
+}
+
+.btn-seg {
+  min-height: 36px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  background: transparent;
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.btn-seg.is-active {
+  background: var(--moss-deep);
+  border-color: var(--moss-deep);
+  color: #fff;
+}
+
+.spinner {
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.spinner-dark {
+  border-color: rgba(18, 36, 28, 0.15);
+  border-top-color: var(--moss);
+}
+
+.spinner-lg {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-width: 2.5px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .card-panel {
@@ -163,8 +207,20 @@ select {
   background: linear-gradient(90deg, var(--moss), #2f9a68);
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (max-width: 640px) {
-  .btn {
+  .btn:not(.btn-inline):not(.btn-seg) {
     width: 100%;
   }
 

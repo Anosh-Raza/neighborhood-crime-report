@@ -16,7 +16,10 @@ type MentionArticle = {
   total_mentions: number
   in_title: boolean
   score: number
+  category?: 'crime' | 'other' | string
 }
+
+type NewsTab = 'crime' | 'other'
 
 export function ReportViewPage() {
   const { id = '' } = useParams()
@@ -24,6 +27,7 @@ export function ReportViewPage() {
   const [status, setStatus] = useState('queued')
   const [error, setError] = useState('')
   const [radius, setRadius] = useState(10)
+  const [newsTab, setNewsTab] = useState<NewsTab>('crime')
 
   const load = async () => {
     try {
@@ -51,7 +55,7 @@ export function ReportViewPage() {
       } catch {
         /* ignore */
       }
-    }, 3500)
+    }, 2500)
     return () => window.clearInterval(t)
   }, [id, status, data?.report?.status])
 
@@ -64,7 +68,24 @@ export function ReportViewPage() {
   const articles: MentionArticle[] = mentions?.articles || []
   const totals = mentions?.totals
   const keyword = data?.report?.area_keyword || mentions?.primary_keyword || 'Area'
-  const maxMentions = Math.max(1, ...articles.map((a) => a.total_mentions || 0))
+
+  const crimeArticles = useMemo(
+    () => articles.filter((a) => (a.category || 'other') === 'crime'),
+    [articles],
+  )
+  const otherArticles = useMemo(
+    () => articles.filter((a) => (a.category || 'other') !== 'crime'),
+    [articles],
+  )
+  const visible = newsTab === 'crime' ? crimeArticles : otherArticles
+  const maxMentions = Math.max(1, ...visible.map((a) => a.total_mentions || 0))
+
+  useEffect(() => {
+    if (status !== 'complete') return
+    if (crimeArticles.length === 0 && otherArticles.length > 0) {
+      setNewsTab('other')
+    }
+  }, [status, crimeArticles.length, otherArticles.length])
 
   const mapIncidents = useMemo(() => {
     const all = data?.map_incidents || []
@@ -75,7 +96,7 @@ export function ReportViewPage() {
     <div className="space-y-6 sm:space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--moss)]">Google News keyword</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--moss)]">Area keyword</p>
           <h1 className="display text-3xl text-[var(--moss-deep)] sm:text-5xl">{keyword}</h1>
           <p className="text-sm text-[var(--muted)] sm:text-base">
             {data?.report?.address || 'Property'}
@@ -97,59 +118,70 @@ export function ReportViewPage() {
 
       <ProgressBanner status={status} error={data?.report?.error_message || error} />
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-4">
         <div className="card-panel rounded-2xl p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Articles found</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Articles</div>
           <div className="display mt-1 text-3xl">{totals?.article_count ?? '—'}</div>
+        </div>
+        <div className="card-panel rounded-2xl p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Crime news</div>
+          <div className="display mt-1 text-3xl">{totals?.crime_count ?? crimeArticles.length}</div>
+        </div>
+        <div className="card-panel rounded-2xl p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Other news</div>
+          <div className="display mt-1 text-3xl">{totals?.other_count ?? otherArticles.length}</div>
         </div>
         <div className="card-panel rounded-2xl p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">In headline</div>
           <div className="display mt-1 text-3xl">{totals?.title_hit_count ?? '—'}</div>
         </div>
-        <div className="card-panel rounded-2xl p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Total mentions</div>
-          <div className="display mt-1 text-3xl">{totals?.total_mentions ?? '—'}</div>
-        </div>
       </div>
 
-      {(totals?.by_keyword || []).length > 0 && (
-        <section className="card-panel space-y-3 rounded-[1.5rem] p-4 sm:p-5">
-          <h2 className="display text-2xl">Keyword frequency</h2>
-          <p className="text-sm text-[var(--muted)]">How often each area name appears across titles and snippets.</p>
-          <div className="space-y-3">
-            {(totals.by_keyword as any[]).map((row) => {
-              const score = (row.title_mentions || 0) * 3 + (row.body_mentions || 0)
-              const width = Math.min(100, Math.round((score / Math.max(score, maxMentions * 3 || 1)) * 100))
-              return (
-                <div key={row.keyword}>
-                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-sm">
-                    <strong>{row.keyword}</strong>
-                    <span className="text-[var(--muted)]">
-                      {row.articles} articles · title {row.title_mentions} · text {row.body_mentions}
-                    </span>
-                  </div>
-                  <div className="mention-bar">
-                    <span style={{ width: `${Math.max(8, width)}%` }} />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
-
       <section className="space-y-3">
-        <h2 className="display text-2xl sm:text-3xl">News mentioning {keyword}</h2>
-        {articles.length === 0 && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="display text-2xl sm:text-3xl">Mentions of {keyword}</h2>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              className={`btn btn-inline btn-seg ${newsTab === 'crime' ? 'is-active' : ''}`}
+              onClick={() => setNewsTab('crime')}
+            >
+              Crime news ({crimeArticles.length})
+            </button>
+            <button
+              type="button"
+              className={`btn btn-inline btn-seg ${newsTab === 'other' ? 'is-active' : ''}`}
+              onClick={() => setNewsTab('other')}
+            >
+              Other news ({otherArticles.length})
+            </button>
+          </div>
+        </div>
+
+        {articles.length === 0 && status === 'complete' && (
+          <p className="text-[var(--muted)]">No news hits for this keyword yet.</p>
+        )}
+        {articles.length === 0 && status !== 'complete' && status !== 'failed' && (
+          <div className="flex items-center justify-center gap-3 py-10 text-[var(--muted)]">
+            <span className="spinner spinner-dark spinner-lg" aria-hidden />
+            <span className="sr-only">Searching</span>
+          </div>
+        )}
+        {articles.length > 0 && visible.length === 0 && (
           <p className="text-[var(--muted)]">
-            {status === 'complete' ? 'No Google News hits for this keyword yet.' : 'Searching Google News…'}
+            {newsTab === 'crime' ? 'No crime-related articles in this set.' : 'No other articles in this set.'}
           </p>
         )}
-        {articles.map((a) => (
+        {visible.map((a) => (
           <article key={a.url} className="card-panel rounded-[1.35rem] p-4 sm:p-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <a href={a.url} target="_blank" rel="noreferrer" className="font-semibold text-[var(--moss-deep)] underline-offset-2 hover:underline">
+                <a
+                  href={a.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-[var(--moss-deep)] underline-offset-2 hover:underline"
+                >
                   {a.title}
                 </a>
                 <div className="mt-1 text-sm text-[var(--muted)]">
@@ -158,6 +190,9 @@ export function ReportViewPage() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
+                <span className={`chip ${a.category === 'crime' ? '' : 'chip-muted'}`}>
+                  {a.category === 'crime' ? 'Crime' : 'Other'}
+                </span>
                 {a.in_title && <span className="chip">In title</span>}
                 <span className="chip chip-muted">Title ×{a.title_mentions}</span>
                 <span className="chip chip-muted">Text ×{a.body_mentions}</span>
@@ -173,15 +208,6 @@ export function ReportViewPage() {
                 <span style={{ width: `${Math.max(10, Math.round((a.total_mentions / maxMentions) * 100))}%` }} />
               </div>
             </div>
-            {(a.matched_keywords || []).length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {a.matched_keywords!.map((k) => (
-                  <span key={k} className="chip chip-muted">
-                    {k}
-                  </span>
-                ))}
-              </div>
-            )}
           </article>
         ))}
       </section>
@@ -194,11 +220,12 @@ export function ReportViewPage() {
       <section className="space-y-4 border-t border-[var(--line)] pt-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="display text-2xl">Map view</h2>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {[1, 3, 5, 10].map((km) => (
               <button
                 key={km}
-                className={`btn btn-inline px-4 py-2 ${radius === km ? 'btn-primary' : 'btn-ghost'}`}
+                type="button"
+                className={`btn btn-inline btn-seg ${radius === km ? 'is-active' : ''}`}
                 onClick={() => setRadius(km)}
               >
                 {km} km

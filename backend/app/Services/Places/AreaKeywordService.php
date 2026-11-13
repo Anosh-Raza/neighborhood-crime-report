@@ -20,7 +20,8 @@ class AreaKeywordService
      */
     public function resolve(?string $listingUrl, ?string $address, ?string $city = null, ?string $countryCode = null): array
     {
-        $parts = $this->partsFromAddress($address);
+        $hostCountry = $this->countryFromListingHost((string) $listingUrl);
+        $parts = $this->partsFromAddress($address, $countryCode ?: ($hostCountry['country_code'] ?? null));
         $fromUrl = $this->partsFromUrl((string) $listingUrl);
 
         $locality = $fromUrl['locality'] ?? $parts['locality'] ?? null;
@@ -28,9 +29,18 @@ class AreaKeywordService
         $scheme = $fromUrl['scheme'] ?? $parts['scheme'] ?? null;
         $phase = $fromUrl['phase'] ?? $parts['phase'] ?? null;
         $city = $city ?: ($fromUrl['city'] ?? $parts['city'] ?? null);
-        $countryCode = $countryCode ?: ($fromUrl['country_code'] ?? $parts['country_code'] ?? null);
+        $countryCode = $countryCode
+            ?: ($fromUrl['country_code'] ?? null)
+            ?: ($parts['country_code'] ?? null)
+            ?: ($hostCountry['country_code'] ?? null);
 
+        if ($locality && $this->isJunkLocality($locality)) {
+            $locality = null;
+        }
         $raw = $locality ?: ($scheme ?: ($city ?: 'Unknown area'));
+        if ($this->isJunkLocality($raw)) {
+            $raw = $city ?: 'Unknown area';
+        }
         $base = $this->normalizeLocality($raw, $phase);
 
         $aliases = $this->expandAliases($base);
@@ -54,7 +64,45 @@ class AreaKeywordService
             }
         }
 
+        $countryCode = $countryCode ? strtoupper($countryCode) : null;
+        // US "Washington Dc" → "Washington"
+        if ($countryCode === 'US' && preg_match('/^(.+?)\s+[A-Za-z]{2}$/', $primary, $sm)) {
+            $primary = trim($sm[1]);
+            $base = $primary;
+        }
+        if ($city && preg_match('/^'.preg_quote($city, '/').'\b/i', (string) $primary)) {
+            // Prefer clean city keyword when locality is "City ST" noise.
+            if (preg_match('/^'.preg_quote($city, '/').'\s+[A-Za-z]{2}$/i', $primary)) {
+                $primary = $city;
+            }
+        }
+
         $searchTerms = array_values(array_unique(array_filter(array_merge([$primary, $base], $aliases))));
+        // Add distinctive place tokens so news search matches "Pocharam" for "Pocharam Secunderabad".
+        foreach (preg_split('/\s+/', $primary) ?: [] as $token) {
+            $token = trim($token);
+            $low = mb_strtolower($token);
+            if (mb_strlen($token) < 4) {
+                continue;
+            }
+            if (in_array($low, ['phase', 'block', 'town', 'garden', 'society', 'colony', 'sector', 'scheme', 'near', 'area'], true)) {
+                continue;
+            }
+            $searchTerms[] = $this->titleCase($token);
+        }
+        $searchTerms = array_values(array_unique(array_filter($searchTerms)));
+        $countryName = $this->countryName($countryCode);
+
+        $geoParts = [];
+        if ($base && strcasecmp($base, 'Unknown area') !== 0) {
+            $geoParts[] = $base;
+        }
+        if ($city && (! $base || mb_strtolower($city) !== mb_strtolower($base)) && ! ($base && str_contains(mb_strtolower($base), mb_strtolower($city)))) {
+            $geoParts[] = $city;
+        }
+        if ($countryName) {
+            $geoParts[] = $countryName;
+        }
 
         return [
             'primary' => $primary,
@@ -65,9 +113,45 @@ class AreaKeywordService
             'scheme' => $scheme ? $this->titleCase($scheme) : null,
             'phase' => $phase,
             'city' => $city,
-            'country_code' => $countryCode ? strtoupper($countryCode) : null,
-            'geocode_query' => trim($base.($city ? ', '.$city : '').', Pakistan'),
+            'country_code' => $countryCode,
+            'geocode_query' => implode(', ', $geoParts),
         ];
+    }
+
+    private function countryName(?string $code): ?string
+    {
+        if (! $code) {
+            return null;
+        }
+
+        return match (strtoupper($code)) {
+            'US' => 'United States',
+            'GB' => 'United Kingdom',
+            'PK' => 'Pakistan',
+            'AU' => 'Australia',
+            'JP' => 'Japan',
+            'IN' => 'India',
+            'DE' => 'Germany',
+            'FR' => 'France',
+            'IT' => 'Italy',
+            'ES' => 'Spain',
+            'PT' => 'Portugal',
+            'AE' => 'United Arab Emirates',
+            'CA' => 'Canada',
+            'NZ' => 'New Zealand',
+            'MY' => 'Malaysia',
+            'SG' => 'Singapore',
+            'NL' => 'Netherlands',
+            'IE' => 'Ireland',
+            'PL' => 'Poland',
+            'SE' => 'Sweden',
+            'NO' => 'Norway',
+            'BE' => 'Belgium',
+            'AT' => 'Austria',
+            'SA' => 'Saudi Arabia',
+            'EG' => 'Egypt',
+            default => null,
+        };
     }
 
     /**
@@ -178,7 +262,7 @@ class AreaKeywordService
             $out['locality'] = $locality;
         }
 
-        $out['city'] = $this->guessCity($slug.' '.$locality) ?? null;
+        $out['city'] = $this->guessCity($slug.' '.$locality, 'PK') ?? null;
         $out = array_filter($out, fn ($v) => $v !== null && $v !== '');
 
         return $out;
@@ -187,7 +271,7 @@ class AreaKeywordService
     /**
      * @return array{locality?: string, block?: string, scheme?: string, phase?: string, city?: string, country_code?: string}
      */
-    private function partsFromAddress(?string $address): array
+    private function partsFromAddress(?string $address, ?string $countryHint = null): array
     {
         if (! $address) {
             return [];
@@ -196,6 +280,9 @@ class AreaKeywordService
         $raw = trim($address);
         $chunks = array_values(array_filter(array_map('trim', preg_split('/,/', $raw) ?: [])));
         $out = [];
+        if ($countryHint) {
+            $out['country_code'] = strtoupper($countryHint);
+        }
 
         foreach ($chunks as $chunk) {
             $low = mb_strtolower($chunk);
@@ -222,6 +309,54 @@ class AreaKeywordService
             if (in_array($low, ['pakistan', 'پاکستان', 'sindh', 'punjab'], true)) {
                 $out['country_code'] = 'PK';
             }
+            if (in_array($low, ['united states', 'usa', 'u.s.', 'u.s.a.'], true)) {
+                $out['country_code'] = 'US';
+            }
+            if (in_array($low, ['united kingdom', 'uk', 'england', 'scotland', 'wales'], true)) {
+                $out['country_code'] = 'GB';
+            }
+            if (in_array($low, ['australia'], true)) {
+                $out['country_code'] = 'AU';
+            }
+            if (in_array($low, ['japan'], true)) {
+                $out['country_code'] = 'JP';
+            }
+            if (in_array($low, ['india'], true)) {
+                $out['country_code'] = 'IN';
+            }
+            if (in_array($low, ['united arab emirates', 'uae'], true)) {
+                $out['country_code'] = 'AE';
+            }
+            if (in_array($low, ['canada'], true)) {
+                $out['country_code'] = 'CA';
+            }
+        }
+
+        // US-style city before state code (ignore street directionals / types).
+        if (empty($out['city'])) {
+            $compact = trim(preg_replace('/\b(nw|ne|sw|se)\b/i', ' ', $raw) ?? $raw);
+            $compact = trim(preg_replace('/\s+/', ' ', $compact) ?? $compact);
+            $compact = trim(preg_replace('/\s+\d{5}(?:-\d{4})?\s*$/', '', $compact) ?? $compact);
+            $street = '/^(street|st|avenue|ave|road|rd|drive|dr|lane|ln|boulevard|blvd|way|court|ct|place|pl|terrace|pennsylvania|main)$/i';
+            if (preg_match('/\b([A-Za-z][A-Za-z]+)\s+([A-Za-z][A-Za-z]+)\s+([A-Za-z]{2})\s*$/', $compact, $um)) {
+                $city = (! preg_match($street, $um[1]) && ! preg_match($street, $um[2]))
+                    ? trim($um[1].' '.$um[2])
+                    : trim($um[2]);
+                $out['city'] = $this->titleCase($city);
+                $out['country_code'] ??= 'US';
+                $out['locality'] ??= $out['city'];
+            } elseif (preg_match('/\b([A-Za-z][A-Za-z]+)\s+([A-Za-z]{2})\s*$/', $compact, $um2) && ! preg_match($street, $um2[1])) {
+                $out['city'] = $this->titleCase(trim($um2[1]));
+                $out['country_code'] ??= 'US';
+                $out['locality'] ??= $out['city'];
+            }
+        }
+
+        // UK postcode city hint: "..., London, SW1A 1AA"
+        if (empty($out['city']) && preg_match('/\b([A-Za-z][A-Za-z\s\-]+),\s*[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i', $raw, $ukm)) {
+            $out['city'] = $this->titleCase(trim($ukm[1]));
+            $out['country_code'] ??= 'GB';
+            $out['locality'] ??= $out['city'];
         }
 
         if (empty($out['locality']) && $chunks !== []) {
@@ -230,14 +365,59 @@ class AreaKeywordService
             $first = trim($first);
             if ($first !== '' && ! preg_match('/^\d/', $first)) {
                 $out['locality'] = $first;
+            } elseif ($first !== '' && preg_match('/^\d/', $first) && ! empty($out['city'])) {
+                // Street number address → use city/neighborhood as the news keyword.
+                $out['locality'] = $out['city'];
+            } elseif ($first !== '' && preg_match('/^\d/', $first)) {
+                // Pull trailing place tokens from a single-line street address.
+                $place = $this->trailingPlaceFromStreet($first);
+                if ($place) {
+                    $out['locality'] = $place;
+                    $out['city'] ??= $place;
+                }
             }
         }
 
         if (empty($out['city'])) {
-            $out['city'] = $this->guessCity($raw);
+            $out['city'] = $this->guessCity($raw, $out['country_code'] ?? $countryHint);
         }
 
         return array_filter($out, fn ($v) => $v !== null && $v !== '');
+    }
+
+    /**
+     * @return array{country?: string, country_code?: string}
+     */
+    private function countryFromListingHost(string $url): array
+    {
+        if ($url === '') {
+            return [];
+        }
+
+        try {
+            return app(\App\Services\Listing\GlobalUrlLocationExtractor::class)
+                ->countryFromHost(preg_replace('/^www\./', '', strtolower((string) parse_url($url, PHP_URL_HOST))) ?? '');
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    private function trailingPlaceFromStreet(string $street): ?string
+    {
+        $street = preg_replace('/\b(united states|united kingdom|pakistan|australia|japan|india)\b/i', '', $street) ?? $street;
+        $street = trim(preg_replace('/\s+/', ' ', $street) ?? $street);
+        // Drop leading house number + street type words; keep last 1–3 capitalized place tokens.
+        $street = preg_replace('/^\d+[A-Za-z]?\s+/', '', $street) ?? $street;
+        $street = preg_replace('/\b(street|st|avenue|ave|road|rd|drive|dr|lane|ln|boulevard|blvd|way|court|ct|place|pl|terrace|nw|ne|sw|se)\b/i', ' ', $street) ?? $street;
+        $street = trim(preg_replace('/\s+/', ' ', $street) ?? $street);
+        $words = preg_split('/\s+/', $street) ?: [];
+        if ($words === []) {
+            return null;
+        }
+        $tail = array_slice($words, -2);
+        $place = trim(implode(' ', $tail));
+
+        return $place !== '' ? $this->titleCase($place) : null;
     }
 
     /**
@@ -334,6 +514,14 @@ class AreaKeywordService
         return trim(preg_replace('/\s+/', ' ', $joined) ?? $joined);
     }
 
+    private function isJunkLocality(string $text): bool
+    {
+        $t = mb_strtolower(trim($text));
+
+        return (bool) preg_match('/^(venta|alquiler|immobile|inmueble|imovel|for sale|for rent|properties|property|homes|listings?|unknown area)(\s|$)/i', $t)
+            || (bool) preg_match('/\b(venta viviendas|alquiler viviendas)\b/i', $t);
+    }
+
     private function normalizePhase(string $phase): string
     {
         $phase = trim($phase);
@@ -344,7 +532,7 @@ class AreaKeywordService
         return strtoupper($phase);
     }
 
-    private function guessCity(string $text): ?string
+    private function guessCity(string $text, ?string $countryCode = null): ?string
     {
         $s = mb_strtolower($text);
         foreach (['karachi', 'lahore', 'islamabad', 'rawalpindi', 'peshawar', 'multan', 'faisalabad'] as $c) {
@@ -352,9 +540,34 @@ class AreaKeywordService
                 return ucfirst($c);
             }
         }
-        foreach (['saadi', 'bahria', 'gulshan', 'clifton', 'nazimabad', 'gulistan', 'scheme', 'dha', 'defence'] as $hint) {
-            if (str_contains($s, $hint)) {
-                return 'Karachi';
+        foreach (['london', 'manchester', 'birmingham', 'leeds', 'glasgow', 'edinburgh'] as $c) {
+            if (str_contains($s, $c)) {
+                return $this->titleCase($c);
+            }
+        }
+        foreach (['sydney', 'melbourne', 'brisbane', 'perth', 'adelaide'] as $c) {
+            if (str_contains($s, $c)) {
+                return $this->titleCase($c);
+            }
+        }
+        foreach (['dubai', 'abu dhabi', 'sharjah'] as $c) {
+            if (str_contains($s, $c)) {
+                return $this->titleCase($c);
+            }
+        }
+        foreach (['new york', 'los angeles', 'chicago', 'houston', 'miami', 'seattle', 'boston', 'washington', 'san francisco', 'austin', 'denver', 'atlanta'] as $c) {
+            if (str_contains($s, $c)) {
+                return $this->titleCase($c);
+            }
+        }
+
+        $cc = $countryCode ? strtoupper($countryCode) : null;
+        // Only bias Pakistani housing schemes to Karachi when country is PK / unknown.
+        if ($cc === null || $cc === 'PK') {
+            foreach (['saadi', 'bahria', 'gulshan', 'clifton', 'nazimabad', 'gulistan', 'scheme', 'dha', 'defence'] as $hint) {
+                if (str_contains($s, $hint)) {
+                    return 'Karachi';
+                }
             }
         }
 

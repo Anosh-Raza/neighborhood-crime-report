@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', static function (): JsonResponse {
     return response()->json([
-        'app' => 'Neighborhood Crime Report API',
+        'app' => 'Houzing API',
         'docs' => '/api/health',
     ]);
 });

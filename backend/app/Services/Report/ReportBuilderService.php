@@ -102,7 +102,7 @@ class ReportBuilderService
         $titleHits = (int) data_get($report->news_mentions, 'totals.title_hit_count', 0);
 
         return sprintf(
-            'Google News search for “%s” found %d articles (%d with the area in the headline). Separately, %d crime-tagged items were mapped near the pin (%d within 1 km). Coverage rating: %s. %s',
+            'News search for “%s” found %d articles (%d with the area in the headline). Separately, %d crime-tagged items were mapped near the pin (%d within 1 km). Coverage rating: %s. %s',
             $keyword,
             $mentionArticles,
             $titleHits,

@@ -9,7 +9,7 @@ class EnsureMongoIndexes extends Command
 {
     protected $signature = 'mongo:ensure-indexes';
 
-    protected $description = 'Create MongoDB indexes for Neighborhood Crime Report collections';
+    protected $description = 'Create MongoDB indexes for Houzing collections';
 
     public function handle(): int
     {

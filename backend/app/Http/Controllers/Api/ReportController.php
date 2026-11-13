@@ -62,31 +62,46 @@ class ReportController extends Controller
             $parsed['country_code'] ?? null,
         );
 
-        // Prefer cleaned locality for display/geocode (fixes "Dha Defence Phase 3 Dha Phase 3").
-        if (! empty($area['geocode_query'])) {
+        // Prefer cleaned locality for display/geocode when area resolver found a real place.
+        if (! empty($area['geocode_query']) && strcasecmp((string) ($area['primary'] ?? ''), 'Unknown area') !== 0) {
             $parsed['address'] = $area['geocode_query'];
-        } elseif (! empty($area['primary'])) {
-            $parsed['address'] = trim($area['primary'].(! empty($area['city']) ? ', '.$area['city'] : '').', Pakistan');
+        } elseif (! empty($area['primary']) && strcasecmp($area['primary'], 'Unknown area') !== 0) {
+            $parsed['address'] = implode(', ', array_filter([
+                $area['primary'],
+                $area['city'] ?? $parsed['city'] ?? null,
+                $parsed['country'] ?? null,
+            ]));
         }
         if (! empty($area['city'])) {
             $parsed['city'] = $area['city'];
         }
         if (! empty($area['country_code'])) {
             $parsed['country_code'] = $area['country_code'];
-            $parsed['country'] = $parsed['country'] ?? 'Pakistan';
         }
 
         if (empty($parsed['lat']) || empty($parsed['lng'])) {
+            $countryCode = $parsed['country_code'] ?? $area['country_code'] ?? null;
+            $primary = ! empty($area['primary']) && strcasecmp((string) $area['primary'], 'Unknown area') !== 0
+                ? (string) $area['primary']
+                : null;
             $candidates = array_values(array_unique(array_filter([
-                $area['geocode_query'] ?? null,
-                ! empty($area['primary']) ? $area['primary'].', Karachi, Pakistan' : null,
-                ! empty($area['primary']) ? $area['primary'].', Pakistan' : null,
-                $data['address'] ?? null,
                 $parsed['address'] ?? null,
+                $area['geocode_query'] ?? null,
+                $primary
+                    ? implode(', ', array_filter([$primary, $parsed['city'] ?? null, $parsed['country'] ?? null]))
+                    : null,
+                $primary && $countryCode === 'IN'
+                    ? $primary.', India'
+                    : null,
+                $primary,
+                ! empty($parsed['city']) && ! empty($parsed['country'])
+                    ? $parsed['city'].', '.$parsed['country']
+                    : null,
+                $data['address'] ?? null,
             ])));
 
             foreach ($candidates as $addressForGeo) {
-                $geo = $geocoding->geocode($addressForGeo, $parsed['country_code'] ?? 'PK');
+                $geo = $geocoding->geocode($addressForGeo, $countryCode);
                 if (! $geo) {
                     continue;
                 }
@@ -96,6 +111,9 @@ class ReportController extends Controller
                 $parsed['country_code'] = $parsed['country_code'] ?? $geo['country_code'];
                 $parsed['city'] = $parsed['city'] ?? $geo['city'];
                 $parsed['source'] = ($parsed['source'] ?? 'address').'+geocode';
+                if (! empty($geo['provider'])) {
+                    $parsed['geocoder'] = $geo['provider'];
+                }
                 break;
             }
         }

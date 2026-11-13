@@ -3,49 +3,44 @@
 namespace App\Jobs;
 
 use App\Models\Report;
-use App\Services\Places\PlaceVocabularyService;
 use App\Support\JobStateTracker;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
+/**
+ * Fast place seeds only — skips Overpass to keep reports under a few seconds.
+ */
 class BuildVocabularyJob implements ShouldQueue
 {
     use Queueable;
 
     public int $tries = 2;
 
-    public int $timeout = 50;
+    public int $timeout = 20;
 
     public function __construct(public string $reportId)
     {
     }
 
-    public function handle(PlaceVocabularyService $places): void
+    public function handle(): void
     {
         JobStateTracker::start($this->reportId, 'build_vocabulary');
         $report = Report::query()->findOrFail($this->reportId);
 
         try {
-            $vocab = $places->build(
-                (float) $report->latitude(),
-                (float) $report->longitude(),
-                (float) config('crime_report.max_search_radius_km')
-            );
-
-            // Always seed listing locality so news search works even if Overpass is down.
             $seeds = array_values(array_filter([
+                $report->area_keyword,
                 $report->city,
                 $report->address,
                 $report->country,
             ]));
-            foreach (['neighborhoods', 'local_names'] as $bucket) {
-                $vocab[$bucket] = array_values(array_unique(array_filter(array_merge(
-                    $seeds,
-                    $vocab[$bucket] ?? []
-                ))));
-            }
 
-            $report->place_vocabulary = $vocab;
+            $report->place_vocabulary = [
+                'streets' => [],
+                'neighborhoods' => $seeds,
+                'landmarks' => [],
+                'local_names' => $seeds,
+            ];
             $report->languages = array_values(array_unique(array_filter([
                 'en',
                 $this->guessLanguage($report->country_code),

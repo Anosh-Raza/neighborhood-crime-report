@@ -6,7 +6,7 @@ export function Layout() {
       <header className="sticky top-0 z-40 border-b border-[var(--line)] bg-[rgba(246,241,231,0.9)] backdrop-blur-md">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <Link to="/" className="display text-xl text-[var(--moss-deep)] sm:text-2xl">
-            Neighborhood Crime Report
+            Houzing
           </Link>
           <span className="hidden text-sm text-[var(--muted)] md:inline">Paste a listing · read the area · search news</span>
         </div>

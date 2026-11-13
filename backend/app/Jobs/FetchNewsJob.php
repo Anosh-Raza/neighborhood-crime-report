@@ -18,7 +18,7 @@ class FetchNewsJob implements ShouldQueue
 
     public int $tries = 2;
 
-    public int $timeout = 90;
+    public int $timeout = 45;
 
     public function __construct(public string $reportId, public string $ring = '0-1')
     {
@@ -50,22 +50,21 @@ class FetchNewsJob implements ShouldQueue
             $report->area_meta = $area;
             $report->save();
 
-            $limit = (int) config('crime_report.news_max_articles_per_report', 40);
+            $limit = min(20, (int) config('crime_report.news_max_articles_per_report', 20));
 
-            // Primary algorithm: Google News search for the area keyword(s).
             $articles = $googleNews->search(
                 $area['search_terms'],
                 $report->country_code,
                 $limit
             );
 
-            // Optional fallback (can be slow / flaky locally) — only if Google News is empty.
-            if ($articles === [] && config('crime_report.news_providers')) {
+            // Skip slow GDELT/legacy RSS by default — area RSS is enough.
+            if ($articles === [] && config('crime_report.news_legacy_fallback', false)) {
                 $articles = $legacyNews->searchForReport(
                     $report->place_vocabulary ?? [],
                     $report->country_code,
                     $report->city,
-                    min(10, $limit)
+                    min(8, $limit)
                 );
             }
 
@@ -76,7 +75,7 @@ class FetchNewsJob implements ShouldQueue
                 'search_terms' => $area['search_terms'],
                 'totals' => $analysis['totals'],
                 'articles' => $analysis['articles'],
-                'google_news_query' => $area['primary'],
+                'news_query' => $area['primary'],
             ];
             $report->save();
 
@@ -86,6 +85,7 @@ class FetchNewsJob implements ShouldQueue
                 'count' => count($articles),
                 'keyword' => $area['primary'],
                 'mention_articles' => $analysis['totals']['article_count'] ?? 0,
+                'crime' => $analysis['totals']['crime_count'] ?? 0,
             ]);
             ExtractIncidentsJob::dispatch($this->reportId, '0-1');
         } catch (\Throwable $e) {

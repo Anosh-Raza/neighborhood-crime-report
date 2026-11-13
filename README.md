@@ -1,8 +1,8 @@
-# Neighborhood Crime Report
+# Houzing
 
 **Paste a property listing URL → see nearby crime news on a map.**
 
-Neighborhood Crime Report is an open MVP that turns real-estate listing links into radius-aware reports of crimes mentioned in public online news. Confirm the map pin, choose 1 / 3 / 5 / 10 km, and review source-linked incidents — never a safety score, never invented events.
+Houzing is an open MVP that turns real-estate listing links into radius-aware reports of crimes mentioned in public online news. Confirm the map pin, choose 1 / 3 / 5 / 10 km, and review source-linked incidents — never a safety score, never invented events.
 
 ## Why this project
 

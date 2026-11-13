@@ -35,7 +35,7 @@ class KeywordMentionAnalyzer
         $bodyMentions = 0;
         $matched = [];
 
-        foreach ($keywords as $keyword) {
+        foreach ($this->expandKeywords($keywords) as $keyword) {
             $k = trim($keyword);
             if ($k === '') {
                 continue;
@@ -50,8 +50,8 @@ class KeywordMentionAnalyzer
         }
 
         $total = $titleMentions + $bodyMentions;
-        // Title hits weigh more — they are how Google News surfaces the area.
         $score = round(($titleMentions * 3) + $bodyMentions + (count($matched) * 0.5), 2);
+        $category = $this->classifyCategory($title.' '.$snippet);
 
         return [
             'url' => (string) $article['url'],
@@ -65,6 +65,7 @@ class KeywordMentionAnalyzer
             'total_mentions' => $total,
             'in_title' => $titleMentions > 0,
             'score' => $score,
+            'category' => $category,
         ];
     }
 
@@ -121,31 +122,73 @@ class KeywordMentionAnalyzer
             }
         }
 
+        $crimeCount = count(array_filter($scored, fn ($a) => ($a['category'] ?? '') === 'crime'));
+
         return [
             'articles' => $scored,
             'totals' => [
                 'article_count' => count($scored),
                 'title_hit_count' => count(array_filter($scored, fn ($a) => $a['in_title'])),
                 'total_mentions' => array_sum(array_column($scored, 'total_mentions')),
+                'crime_count' => $crimeCount,
+                'other_count' => count($scored) - $crimeCount,
                 'by_keyword' => array_values($keywordTotals),
             ],
         ];
     }
 
+    private function classifyCategory(string $text): string
+    {
+        $hay = mb_strtolower($text);
+        if (preg_match('/\b(crime|shoot(?:ing|er)?|shot|fir(?:e|ed|ing)|gun|pistol|murder(?:ed|er)?|homicide|kill(?:ed|ing)?|assault(?:ed)?|attack(?:ed|er)?|robber(?:y)?|robbed|theft|stolen|burglar(?:y)?|rape[d]?|arrest(?:ed|s)?|police|kidnap(?:ped|ping)?|extortion|drug[s]?|narcotics|violence|stab(?:bed|bing)?|riot[s]?|mob|suspect[s]?|fraud|scam|cybercrime|molest(?:ation|ed)?|harass(?:ment|ed)?|assailant|gau\s*raksh)/u', $hay)) {
+            return 'crime';
+        }
+
+        return 'other';
+    }
+
     private function titleLooksRelevant(string $title, array $keywords): bool
     {
-        foreach ($keywords as $keyword) {
+        foreach ($this->expandKeywords($keywords) as $keyword) {
             if ($this->countMentions($title, $keyword) > 0) {
-                return true;
-            }
-            // Soft match on stem (Saadi)
-            $stem = preg_replace('/\s+(garden|town|society|phase|colony)$/i', '', $keyword) ?? $keyword;
-            if (mb_strlen($stem) >= 4 && $this->countMentions($title, $stem) > 0) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * @param  string[]  $keywords
+     * @return string[]
+     */
+    private function expandKeywords(array $keywords): array
+    {
+        $out = [];
+        foreach ($keywords as $keyword) {
+            $k = trim($keyword);
+            if ($k === '') {
+                continue;
+            }
+            $out[] = $k;
+            $stem = preg_replace('/\s+(garden|town|society|phase|colony|sector)$/i', '', $k) ?? $k;
+            if ($stem !== $k && mb_strlen($stem) >= 4) {
+                $out[] = $stem;
+            }
+            foreach (preg_split('/\s+/', $k) ?: [] as $token) {
+                $token = trim($token);
+                $low = mb_strtolower($token);
+                if (mb_strlen($token) < 4) {
+                    continue;
+                }
+                if (in_array($low, ['phase', 'block', 'town', 'garden', 'society', 'colony', 'sector', 'scheme', 'near', 'area'], true)) {
+                    continue;
+                }
+                $out[] = $token;
+            }
+        }
+
+        return array_values(array_unique($out));
     }
 
     private function countMentions(string $haystack, string $needle): int
@@ -154,9 +197,14 @@ class KeywordMentionAnalyzer
             return 0;
         }
 
-        $pattern = '/'.preg_quote($needle, '/').'/iu';
+        // Word-boundary-ish match so "Pocharam" hits inside headlines.
+        $pattern = '/(?<![\p{L}\p{N}])'.preg_quote($needle, '/').'(?![\p{L}\p{N}])/iu';
         if (! preg_match_all($pattern, $haystack, $m)) {
-            return 0;
+            // Fallback: plain substring for multi-word / hyphenated place names.
+            $pattern = '/'.preg_quote($needle, '/').'/iu';
+            if (! preg_match_all($pattern, $haystack, $m)) {
+                return 0;
+            }
         }
 
         return count($m[0]);

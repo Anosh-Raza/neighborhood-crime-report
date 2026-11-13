@@ -10,6 +10,7 @@ export function PrompterPage() {
   const [radius, setRadius] = useState(10)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [searching, setSearching] = useState(false)
 
   const center = useMemo<[number, number] | null>(() => {
     if (preview?.lat == null || preview?.lng == null) return null
@@ -37,28 +38,44 @@ export function PrompterPage() {
   }
 
   const create = async () => {
-    if (!preview?.lat || !preview?.lng || !preview.address) {
-      setError('Confirm the map pin and address first.')
+    if (!preview?.address) {
+      setError('Add an address first.')
       return
     }
-    setLoading(true)
+
+    setSearching(true)
     setError('')
     try {
+      let pin = preview
+      if (pin.lat == null || pin.lng == null) {
+        // Re-resolve coordinates from the (possibly edited) address.
+        const res = await api.preview({
+          address: pin.address,
+          listing_url: pin.listing_url || undefined,
+        })
+        pin = { ...pin, ...res.preview }
+        setPreview(pin)
+        if (pin.lat == null || pin.lng == null) {
+          setError('Could not place a map pin for this address. Try a clearer city or area name.')
+          setSearching(false)
+          return
+        }
+      }
+
       const res = await api.createReport({
-        listing_url: preview.listing_url,
-        address: preview.address,
-        city: preview.city,
-        country: preview.country,
-        country_code: preview.country_code,
-        lat: preview.lat,
-        lng: preview.lng,
+        listing_url: pin.listing_url,
+        address: pin.address,
+        city: pin.city,
+        country: pin.country,
+        country_code: pin.country_code,
+        lat: pin.lat,
+        lng: pin.lng,
         requested_radius_km: radius,
       })
       navigate(`/reports/${res.report.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start search')
-    } finally {
-      setLoading(false)
+      setSearching(false)
     }
   }
 
@@ -68,8 +85,8 @@ export function PrompterPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--moss)]">Step 1 · Trace the listing</p>
         <h1 className="display text-4xl text-[var(--moss-deep)] sm:text-5xl md:text-6xl">Paste a property link</h1>
         <p className="text-base text-[var(--muted)] sm:text-lg">
-          Paste any property listing link. We open the page, read the location details, find the main area name, search
-          Google News for that keyword, then show title and text mention counts.
+          Paste a property listing link from any country or site. We read the location, detect the area keyword, then
+          show how often that place is mentioned in news.
         </p>
 
         <form onSubmit={runPreview} className="card-panel space-y-3 rounded-[1.75rem] p-3 text-left sm:p-4">
@@ -85,8 +102,15 @@ export function PrompterPage() {
             required
             autoFocus
           />
-          <button className="btn btn-primary w-full sm:w-auto" disabled={loading || !url.trim()}>
-            {loading && !preview ? 'Reading listing…' : 'Find area'}
+          <button className="btn btn-primary w-full sm:w-auto" disabled={loading || searching || !url.trim()}>
+            {loading && !preview ? (
+              <>
+                <span className="spinner" aria-hidden />
+                Reading…
+              </>
+            ) : (
+              'Find area'
+            )}
           </button>
         </form>
 
@@ -105,7 +129,7 @@ export function PrompterPage() {
                 {preview.area_keyword || 'Area pending'}
               </h2>
               <p className="mt-2 text-sm text-[var(--muted)]">
-                Google News will be searched for this keyword
+                We will search news for this keyword
                 {preview.area_aliases?.length ? ` (also: ${preview.area_aliases.join(', ')})` : ''}.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -156,21 +180,34 @@ export function PrompterPage() {
             </div>
             <div>
               <div className="mb-2 text-sm font-semibold">Map filter radius</div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-1.5">
                 {[1, 3, 5, 10].map((km) => (
                   <button
                     key={km}
                     type="button"
-                    className={`btn btn-inline px-4 py-2 ${radius === km ? 'btn-primary' : 'btn-ghost'}`}
+                    className={`btn btn-inline btn-seg ${radius === km ? 'is-active' : ''}`}
                     onClick={() => setRadius(km)}
+                    disabled={searching}
                   >
                     {km} km
                   </button>
                 ))}
               </div>
             </div>
-            <button className="btn btn-primary w-full" onClick={() => void create()} disabled={loading}>
-              {loading ? 'Searching Google News…' : `Search news for “${preview.area_keyword || 'area'}”`}
+            <button
+              className="btn btn-primary w-full"
+              onClick={() => void create()}
+              disabled={searching}
+              aria-busy={searching}
+            >
+              {searching ? (
+                <>
+                  <span className="spinner" aria-hidden />
+                  <span className="sr-only">Searching</span>
+                </>
+              ) : (
+                `Search “${preview.area_keyword || 'area'}”`
+              )}
             </button>
           </div>
         </section>

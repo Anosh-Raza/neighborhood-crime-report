@@ -25,7 +25,7 @@ return [
 
     'nominatim' => [
         'base_url' => rtrim((string) env('NOMINATIM_BASE_URL', 'https://nominatim.openstreetmap.org'), '/'),
-        'user_agent' => env('NOMINATIM_USER_AGENT', 'NeighborhoodCrimeReport/1.0'),
+        'user_agent' => env('NOMINATIM_USER_AGENT', 'Houzing/1.0 (https://houzing.app)'),
     ],
 
     'overpass' => [

@@ -26,7 +26,7 @@ class NominatimGeocoder implements GeocoderInterface
 
             $request = Http::withHeaders([
                 'User-Agent' => config('services.nominatim.user_agent'),
-            ])->timeout(20);
+            ])->timeout(8)->connectTimeout(3);
 
             if (app()->environment('local')) {
                 $request = $request->withOptions(['verify' => false]);
@@ -53,7 +53,7 @@ class NominatimGeocoder implements GeocoderInterface
         return Cache::remember($cacheKey, now()->addDays(14), function () use ($lat, $lng) {
             $request = Http::withHeaders([
                 'User-Agent' => config('services.nominatim.user_agent'),
-            ])->timeout(20);
+            ])->timeout(8)->connectTimeout(3);
 
             if (app()->environment('local')) {
                 $request = $request->withOptions(['verify' => false]);

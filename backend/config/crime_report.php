@@ -29,7 +29,10 @@ return [
 
     'news_max_articles_per_report' => (int) env('NEWS_MAX_ARTICLES_PER_REPORT', 20),
 
-    'news_providers' => array_filter(explode(',', (string) env('NEWS_PROVIDERS', 'gdelt,rss'))),
+    // Legacy GDELT/RSS fallback is slow — off by default.
+    'news_legacy_fallback' => (bool) env('NEWS_LEGACY_FALLBACK', false),
+
+    'news_providers' => array_filter(explode(',', (string) env('NEWS_PROVIDERS', ''))),
 
     'disclaimer' => 'News reports cover only part of actual crime. A low count does not mean an area is safe.',
 

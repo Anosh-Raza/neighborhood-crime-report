@@ -10,7 +10,7 @@ export function LandingPage() {
           Multi-country · news-sourced · map-first
         </p>
         <h1 className="display text-5xl leading-[1.05] text-[var(--moss-deep)] md:text-6xl">
-          Neighborhood Crime Report
+          Houzing
         </h1>
         <p className="max-w-xl text-lg text-[var(--muted)]">
           Paste a real estate listing URL. Confirm the pin. Get a radius-aware report of crimes mentioned
