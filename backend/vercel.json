@@ -1,24 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "name": "crime-report-api",
-  "framework": null,
-  "services": [
-    {
-      "name": "laravel",
-      "runtime": "container",
-      "memory": 1024
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/laravel"
-    }
-  ],
-  "crons": [
-    {
-      "path": "/api/internal/queue/drain",
-      "schedule": "* * * * *"
-    }
-  ]
+  "framework": "container"
 }

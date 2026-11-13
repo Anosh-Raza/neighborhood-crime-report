@@ -24,7 +24,9 @@ export function NewReportPage() {
     setLoading(true)
     setError('')
     try {
-      const res = await api.preview(url)
+      const trimmed = url.trim()
+      const looksLikeUrl = /^https?:\/\//i.test(trimmed)
+      const res = await api.preview(looksLikeUrl ? { listing_url: trimmed } : { address: trimmed })
       setPreview(res.preview)
       setRadius(Math.min(1, res.user_max_radius_km))
     } catch (err) {
